@@ -477,6 +477,7 @@ _AUTH_TOKEN_PATTERNS: list[str] = [
     r"g\.a000-[A-Za-z0-9_\-]+",
     r"sidts-[A-Za-z0-9_\-]{10,}",
     r"ya29\.[A-Za-z0-9_\-]{20,}",
+    r"AQ\.[A-Za-z0-9_\-]{20,}",
 ]
 
 # Google API-key shape (``AIza`` + 35 ``[A-Za-z0-9_-]`` chars), applied as a

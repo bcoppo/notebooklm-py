@@ -147,6 +147,7 @@ AUTH_TOKEN_SHAPE_PATTERNS: tuple[str, ...] = (
     r"sidts-[A-Za-z0-9_\-]{10,}",
     r"ya29\.[A-Za-z0-9_\-]{20,}",
     r"AIza[0-9A-Za-z_\-]{35,}",
+    r"AQ\.[A-Za-z0-9_\-]{20,}",
 )
 
 

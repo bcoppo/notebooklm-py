@@ -7,6 +7,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The credential scrubber now redacts Google API keys in the current
+  `AQ.`-prefixed shape, not just the legacy `AIza` + 35-char shape. Google
+  migrated AI Studio keys to an `AQ.`-prefixed ~53-character format that matched
+  none of the four `AUTH_TOKEN_SHAPE_PATTERNS`, so a current-format key rode
+  through redaction into logs, `data_at_failure` / `payload_preview` and recorded
+  cassettes — the same leak class
+  [#1517](https://github.com/teng-lin/notebooklm-py/issues/1517) closed for the
+  legacy shape. The identical regex is registered in both the runtime registry
+  (`_secrets.AUTH_TOKEN_SHAPE_PATTERNS`) and the cassette registry
+  (`tests/cassette_patterns._AUTH_TOKEN_PATTERNS`), so the parity guardrail stays
+  green and the derived scrubber and `_DETECT_AUTH_TOKEN` detector pick it up.
+  The tail quantifier is open-ended (`{20,}`) per the no-fragment rationale
+  already documented for the other shapes.
+
 ## [0.8.1] - 2026-08-14
 
 ### Added
