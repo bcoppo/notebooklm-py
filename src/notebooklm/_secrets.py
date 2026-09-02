@@ -144,6 +144,9 @@ SECURE_HOST_UMBRELLA_PATTERNS: tuple[str, ...] = (
 #     ``data_at_failure`` / ``payload_preview`` it would otherwise leak. ``{35,}``
 #     (not ``{35}``) is greedy so a longer-than-canonical key is consumed whole,
 #     never leaving a re-matchable tail fragment (cassette-registry rationale).
+#   * ``AQ.…`` — the Google authorization-key shape. The distinctive prefix
+#     carries a conservative ``{20,}`` floor and an open-ended tail so current
+#     keys are consumed whole without leaving a credential fragment.
 AUTH_TOKEN_SHAPE_PATTERNS: tuple[str, ...] = (
     r"aas_et/[A-Za-z0-9_\-]+",
     r"g\.a000-[A-Za-z0-9_\-]+",
