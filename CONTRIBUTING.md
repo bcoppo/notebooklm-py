@@ -31,7 +31,7 @@ playwright install chromium
 pre-commit install
 ```
 
-For full prerequisites, headless setup, optional extras (`[cookies]`, `[markdown]`, `[mcp]`, `[server]`), and platform notes, see [docs/installation.md#e-contributor](docs/installation.md#e-contributor).
+For full prerequisites, headless setup, optional extras (`[android]`, `[cookies]`, `[markdown]`, `[mcp]`, `[server]`), and platform notes, see [docs/installation.md#e-contributor](docs/installation.md#e-contributor).
 
 > **Install-doc parity.** `docs/installation.md` is the canonical install guide; this file mirrors a small contributor-focused subset. Every fenced ``bash`` block in `installation.md` must EITHER appear verbatim in `CONTRIBUTING.md`, OR be marked with `<!-- not mirrored: <reason> -->` on the line directly before its opening fence. CI enforces this via `scripts/check_ci_install_parity.py` so a stale block can't drift in unnoticed. When you edit `installation.md`, decide on the spot whether the new content also belongs in this file.
 
@@ -39,6 +39,11 @@ The `browser` extra is part of the contributor install because the default unit
 suite imports and patches `playwright.sync_api`. The command
 `uv sync --frozen --extra dev` is only the test/lint toolchain; it is not enough
 for `uv run pytest`.
+
+Android runtime work is opt-in. Add `--extra android` to the canonical
+contributor sync command when running Android tests or regenerating Android
+stubs; keep the existing `browser`, `dev`, and `markdown` extras. The `all`
+extra does not include the Android runtime.
 
 > **Architecture & testing context.** Once installed, read [docs/development.md](docs/development.md) for the layered RPC/Core/Client/CLI design, test-tree layout, and release workflow before touching `src/notebooklm/`.
 
@@ -68,7 +73,7 @@ pre-commit run --all-files                      # manual run on the whole tree (
 
 > **Caveat:** if `pre-commit install` errors with `Cowardly refusing to install hooks with core.hooksPath set`, your git is configured to use a custom hooks directory (common with Husky / nx / shared dev configs). Workaround: `git config --unset core.hooksPath` then re-run `pre-commit install`, or run `pre-commit run --all-files` manually before each commit. CI runs the same hook either way, so a clean local hook is convenience, not correctness.
 
-> **CI parity.** The local pre-commit one-liner above matches the CI **lint gate** (`uv run pre-commit run --all-files` in `.github/workflows/test.yml`). CI additionally runs the full test matrix on multiple Python versions (3.10–3.14) and asserts a 90% coverage floor (`pytest --cov=src/notebooklm --cov-report=term-missing --cov-fail-under=90`). The lint+test failure modes are caught locally; the multi-Python-version drift is not — `uv run pytest --cov=src/notebooklm --cov-report=term-missing --cov-fail-under=90` here uses your local Python version only.
+> **CI parity.** The local pre-commit one-liner above matches the CI **lint gate** (`uv run pre-commit run --all-files` in `.github/workflows/test.yml`). CI additionally runs the full test matrix on multiple Python versions (3.10–3.14) without coverage; the 90% coverage floor (`pytest --cov=src/notebooklm --cov-report=term-missing --cov-fail-under=90`) is asserted by the nightly workflow. The lint+test failure modes are caught locally; the multi-Python-version drift is not — `uv run pytest --cov=src/notebooklm --cov-report=term-missing --cov-fail-under=90` here uses your local Python version only.
 
 ### Pull Request Process
 
@@ -106,7 +111,7 @@ The test suite is split into three tiers by network/auth dependency. Place new t
 | Tier | Location | What lives here | Network | Auth |
 |------|----------|-----------------|---------|------|
 | Unit | `tests/unit/` | Pure-Python tests + `pytest_httpx` (`httpx_mock`) request-level mocks. Encoder/decoder, dataclasses, helpers, CLI boundary, and httpx_mock-driven API tests. | None (mocked) | None |
-| Integration | `tests/integration/` | VCR cassette replay only — `@pytest.mark.vcr` / `notebooklm_vcr.use_cassette(...)` against recorded fixtures in `tests/cassettes/`. | None (replayed) | None |
+| Integration | `tests/integration/` | VCR cassette replay only — `@pytest.mark.vcr` / `notebooklm_vcr.use_cassette(...)` against recorded fixtures in `tests/cassettes/web/`. | None (replayed) | None |
 | E2E | `tests/e2e/` | Real NotebookLM API. Marked `@pytest.mark.e2e`; excluded from the default `pytest` run via `addopts = --ignore=tests/e2e`. | Real | Required (`notebooklm login`) |
 
 Run a tier explicitly:
@@ -132,9 +137,17 @@ uv run pytest tests/unit tests/integration -m "not repo_lint"
 uv run pytest tests/unit tests/integration -m "repo_lint"
 ```
 
-Run the full suite (including `repo_lint`) before pushing — CI runs everything
-by default, so `repo_lint` failures still block merge. The default
-`uv run pytest` invocation does not filter the marker out.
+Run the full suite (including `repo_lint`) before pushing. PR CI does **not**
+run `repo_lint` in bulk: every matrix cell passes `-m "not repo_lint"`, so of
+the marker itself only the guards named by node id in the `Run critical
+contract guards` step of `.github/workflows/test.yml` are merge-blocking (the
+ordinary non-`repo_lint` suite blocks merge as always, and the Code Quality job
+independently runs some of the same scripts several `repo_lint` tests wrap).
+The rest of the marker runs in the manual `repo-lint` job (`workflow_dispatch`)
+and nightly, so a `repo_lint` failure with no promoted node id and no
+Code-Quality mirror can reach `main` unnoticed until the next nightly. The
+default `uv run pytest` invocation does not filter the marker out; `make gates`
+runs the marker with CI's shape.
 
 Quick guidance:
 
@@ -231,7 +244,6 @@ Agents should ignore files marked `Deprecated`.
 docs/
 ├── adr/                   # Architectural Decision Records (ADRs)
 ├── architecture.md        # Layered architecture and repository map
-├── auth-cookie-lifecycle.md      # Cookie expiration mitigation strategies and keepalive loops
 ├── cli-exit-codes.md      # CLI exit-code convention (binding contract for scripts/CI)
 ├── cli-reference.md       # CLI command reference
 ├── configuration.md       # Storage, profiles, and settings

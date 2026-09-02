@@ -1,9 +1,14 @@
 # RPC Development Guide
 
 **Status:** Active
-**Last Updated:** 2026-08-05
+**Last Updated:** 2026-09-02
 
-This guide covers everything about NotebookLM's RPC protocol: capturing calls, debugging issues, and implementing new methods.
+This guide covers the Web backend's batchexecute protocol: capturing calls,
+debugging issues, and implementing Web methods. For Android gRPC/protobuf work,
+start with the [Android evidence index](android/README.md), then use
+[`android/capture.md`](android/capture.md) and the checked-in proto/evidence ledger.
+Typed public namespaces may implement both backends, but the wire-development
+workflows are intentionally separate.
 
 See also: [Python API Reference](python-api.md)
 
@@ -11,7 +16,10 @@ See also: [Python API Reference](python-api.md)
 
 ## Protocol Overview
 
-NotebookLM uses Google's `batchexecute` RPC protocol.
+NotebookLM's Web frontend uses Google's `batchexecute` RPC protocol. The
+explicit Android backend uses bearer-authenticated gRPC instead; `RPCMethod`
+and `client.rpc_call(...)` remain Web-specific even when the typed namespace
+graph is Android-selected.
 
 ### Key Concepts
 
@@ -37,13 +45,16 @@ NotebookLM uses Google's `batchexecute` RPC protocol.
 
 - **RPC method IDs:** `src/notebooklm/rpc/types.py`
 - **Payload builders:** the owning implementation modules, for example
-  `_notebooks.py::build_create_notebook_params`,
-  `_source/upload_payloads.py`, `_source/add.py`, `_label/params.py`, and
-  `_artifact/payloads.py`
+  `_web/params/notebooks.py::build_create_notebook_params`,
+  `_web/params/artifacts.py`, `_web/params/sources.py`, `_web/sources/add.py`,
+  `_web/params/labels.py`, and `_web/params/collections.py`
 - **Golden payload tests:** `tests/unit/test_rpc_golden_payloads.py` and
   feature-specific unit tests such as `tests/unit/test_label_params.py`
 - **Human reference:** `docs/rpc-reference.md`, updated after the builder and
   tests land
+- **Android contracts:** `docs/android/endpoints.md` and
+  `docs/android/proto-evidence-ledger.md`, with adapter paths pinned by Android
+  manifest/descriptor tests
 
 ---
 
@@ -172,7 +183,7 @@ await client.refresh_auth()
 ```python
 # decode_response is an internal RPC helper (notebooklm.rpc.* is internal per
 # docs/stability.md); import it from its defining module for contributor debugging.
-from notebooklm.rpc.decoder import decode_response
+from notebooklm._web.wire.decoder import decode_response
 
 raw_response = await http_client.post(...)
 print("Raw:", raw_response.text[:500])
@@ -243,6 +254,11 @@ def parse_response(text: str, rpc_id: str):
 ---
 
 ## Adding New RPC Methods
+
+The workflow below is for a Web batchexecute method. If the public feature must
+also work under explicit Android selection, add or extend the corresponding
+`Android*API`, protobuf overlay/evidence entry, and Android unit/cassette tests;
+do not inject a Web operation collaborator into the Android namespace graph.
 
 ### Workflow
 
@@ -441,6 +457,8 @@ print(f"DEBUG: {result}")  # See actual structure
 - [ ] Integration test with mock
 - [ ] E2E test (manual verification OK for rare operations)
 - [ ] Updated `rpc-reference.md`
+- [ ] If the typed public method is backend-neutral, implemented and tested the
+  Android adapter or explicitly documented why the method is Web-only
 
 ---
 
@@ -553,7 +571,7 @@ serves, and scores the pin against it:
 - **The verdict compares label dates, never the wall clock**, so it depends only
   on what was served — a delayed or replayed run cannot age into an alarm.
 - **Exit 5 sits below every live-breakage code** (mismatch, auth, non-transient
-  error, cohort flip). A stale pin is maintenance, and it must never mask an
+  error, customization-table drift). A stale pin is maintenance, and it must never mask an
   outage.
 - **Redirects are followed by hand**, at most two hops, and only to an `https`
   personal app host at the site root — the lane never carries the session jar

@@ -189,6 +189,7 @@ def test_collect_manifest_includes_representative_client_namespace_methods(scrip
     assert {
         "artifacts.download_audio",
         "chat.ask",
+        "collections.list",
         "mind_maps.generate",
         "mind_maps.get",
         "notebooks.list",
@@ -202,6 +203,22 @@ def test_collect_manifest_includes_representative_client_namespace_methods(scrip
 
 def test_mind_maps_namespace_is_audited(script):
     assert "mind_maps" in script.CLIENT_NAMESPACE_ATTRIBUTES
+
+
+def test_all_eleven_client_namespaces_are_audited(script):
+    assert set(script.CLIENT_NAMESPACE_ATTRIBUTES) == {
+        "artifacts",
+        "chat",
+        "collections",
+        "labels",
+        "mind_maps",
+        "notes",
+        "notebooks",
+        "research",
+        "settings",
+        "sharing",
+        "sources",
+    }
 
 
 def test_collect_manifest_captures_return_annotation(script):
@@ -223,6 +240,30 @@ def test_collect_manifest_canonicalizes_pep563_return_annotation(script):
     members = manifest["modules"]["notebooklm"]["exports"]["NotebookLMClient"]["members"]
 
     assert members["mind_maps.get"]["signature"]["return_annotation"] == "notebooklm.types.MindMap"
+
+
+def test_collect_manifest_canonicalizes_neutral_enum_annotation_home(script):
+    """The enum move keeps the historical audited compatibility spelling."""
+    manifest = script.collect_manifest(REPO_ROOT)
+
+    cases = (
+        ("notebooklm", "Artifact", "report_format", "notebooklm.rpc.types.ReportFormat | None"),
+        (
+            "notebooklm",
+            "NextStepSuggestion",
+            "kind",
+            "notebooklm.rpc.types.MagicArtifactType | None",
+        ),
+        (
+            "notebooklm",
+            "NotebookMetadata",
+            "role",
+            "notebooklm.rpc.types.SharePermission | None",
+        ),
+    )
+    for module_name, class_name, member_name, expected in cases:
+        member = manifest["modules"][module_name]["exports"][class_name]["members"][member_name]
+        assert member["signature"]["return_annotation"] == expected
 
 
 def test_collect_manifest_preserves_defaulted_dataclass_fields(script):

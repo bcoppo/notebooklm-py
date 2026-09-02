@@ -1,7 +1,7 @@
 # Configuration
 
 **Status:** Active
-**Last Updated:** 2026-08-05
+**Last Updated:** 2026-09-02
 
 This guide covers storage locations, environment settings, and configuration options for `notebooklm-py`.
 
@@ -15,10 +15,12 @@ All data is stored under `~/.notebooklm/` by default, organized by profile:
 ├── profiles/
 │   ├── default/          # Default profile (auto-created)
 │   │   ├── storage_state.json    # Authentication cookies and session
+│   │   ├── master_token.json     # Durable headless/Android credential (optional)
 │   │   ├── context.json          # CLI context (active notebook, conversation)
 │   │   └── browser_profile/      # Persistent Chromium profile
 │   ├── work/             # Named profile example
 │   │   ├── storage_state.json
+│   │   ├── master_token.json
 │   │   ├── context.json
 │   │   └── browser_profile/
 │   └── personal/
@@ -71,7 +73,7 @@ Contains the authentication data extracted from your browser session:
 
 **Cookie requirements** (empirically validated via single-, pair-, and three-way ablation; see [auth-cookie-lifecycle.md](auth-cookie-lifecycle.md#33-empirical-cookie-requirements); enforced by `_validate_required_cookies()` in `_auth/cookie_policy.py`):
 
-- **Tier 1 — strictly required (raises on absence):** `SID` AND `__Secure-1PSIDTS`. `SID` is the only individually-required cookie (`__Secure-1PSIDTS` is removable on its own because Google can re-mint it via `RotateCookies`), but the pair-wise check uncovered that as soon as `__Secure-1PSIDTS` and any one other auth cookie are both missing, Google rejects with `Authentication expired or invalid`. The library therefore enforces both up-front. Authoritative value: `MINIMUM_REQUIRED_COOKIES` in `_auth/cookie_policy.py`.
+- **Tier 1 — strictly required (raises on absence):** both `SID` and `__Secure-1PSIDTS`. Recovery may be able to re-mint `__Secure-1PSIDTS` before validation, but an input that reaches normal validation without either cookie is rejected. Authoritative value: `MINIMUM_REQUIRED_COOKIES` in `_auth/cookie_policy.py`.
 - **Tier 2 — secondary binding (logs a warning if absent):** either `OSID` is present, or `APISID` and `SAPISID` are present **together with bare `LSID`** (the `LSID` conjunct is required — the pair alone fails, per the three-way ablation in #1977). Without this, even valid Tier 1 cookies can't authenticate the homepage GET. Logged rather than raised so unverified edge-case flows (e.g. Workspace SSO) aren't broken by a too-strict client check.
 
 In practice: extract the full cookie set via `notebooklm login` and don't try to subset it. Partial extractions (a known failure mode of browser-cookies tooling under Chrome 127+ App-Bound Encryption) are the leading suspect for "auth expires immediately" reports — see [#371](https://github.com/teng-lin/notebooklm-py/issues/371).
@@ -143,8 +145,9 @@ directory does not count as a reusable L3 browser session.
 
 ### Master Token (`master_token.json`)
 
-Written only by `notebooklm login --master-token` (the `[headless]` extra). Holds
-a durable Google master token (mode `0600`) that mints/refreshes the profile's
+Written only by `notebooklm login --master-token --account EMAIL`. It needs `gpsoauth`, supplied
+by either the `[headless]` or `[android]` extra. It holds a durable Google master
+token (mode `0600`) that mints/refreshes the profile's
 `storage_state.json` cookies with no per-session browser. When present beside a
 profile's `storage_state.json`, an expired session re-mints from it
 automatically. If storage is absent, `notebooklm auth refresh` mints it from the
@@ -157,14 +160,41 @@ remains an unconditional forced re-mint.
 
 > ⚠️ **Full-account, durable credential** — larger blast radius than
 > `storage_state.json`; dedicated/throwaway account only. See
-> [installation.md#alternative-master-token-auth-no-cookie-file-to-ship-survives-expiry](installation.md#d-headless-server-or-ci).
+> [installation.md#alternative-master-token-auth-no-cookie-file-to-ship-survives-expiry](installation.md#alternative-master-token-auth-no-cookie-file-to-ship-survives-expiry).
 
 ## Environment Variables
+
+### Backend preference
+
+The client accepts `backend="web"` or `backend="android"` as an optional,
+keyword-only construction argument. The same preference is available as the
+root CLI flag `notebooklm --backend ...`, the `notebooklm-mcp --backend ...`
+option, and the `notebooklm-server --backend ...` option. Resolution is always:
+
+1. explicit SDK or frontend option;
+2. `NOTEBOOKLM_BACKEND`;
+3. `web`.
+
+The preference is fixed when a client is constructed. `backend="android"`
+installs Android adapters for every public namespace; the read-only
+`client.backends` mapping consequently reports `android` for all eleven entries.
+The root `client.rpc_call(...)` escape hatch remains Web-specific because its
+`RPCMethod` values are Web `batchexecute` identifiers. Neither `auto` nor
+`mobile` is accepted.
+
+Selecting Android does not read credentials during construction. At
+`client.open()` / async-context entry it requires both the `android` extra and
+a profile-backed `master_token.json`, from which it mints short-lived Android
+bearer credentials. Bootstrap that profile with
+`notebooklm login --master-token --account EMAIL`; a cookie-only storage file
+or `NOTEBOOKLM_AUTH_JSON` is not sufficient for Android. There is no public raw
+`master_token=` constructor argument.
 
 | Variable | Description | Default |
 |----------|-------------|---------|
 | `NOTEBOOKLM_HOME` | Base directory for all files | `~/.notebooklm` |
 | `NOTEBOOKLM_PROFILE` | Active profile name | `default` |
+| `NOTEBOOKLM_BACKEND` | Preferred namespace backend: `web` or `android`. Explicit SDK/CLI/MCP/REST options take precedence. | `web` |
 | `NOTEBOOKLM_AUTH_JSON` | Inline authentication JSON (for CI/CD) | - |
 | `NOTEBOOKLM_NOTEBOOK` | Default notebook ID for commands without `-n/--notebook` | - |
 | `NOTEBOOKLM_HL` | Default interface/output language code (e.g. `en`, `ja`, `zh_Hans`) | `en` |
@@ -239,7 +269,7 @@ be audited from one location.
 | `NOTEBOOKLM_LOG_LEVEL` | `DEBUG`/`INFO`/`WARNING`/`ERROR` floor for the `notebooklm` package logger. | `--quiet` flag (forces `ERROR`) → `-v/-vv` flags (force `INFO`/`DEBUG`) → `NOTEBOOKLM_DEBUG_RPC=1` (forces `DEBUG`) → `NOTEBOOKLM_LOG_LEVEL` → `WARNING` | `_logging.configure_logging` + `notebooklm_cli.cli` |
 | `NOTEBOOKLM_DEBUG_RPC` | Legacy alias that sets the package logger to `DEBUG`. Prefer `NOTEBOOKLM_LOG_LEVEL=DEBUG` for new code. | (See `NOTEBOOKLM_LOG_LEVEL`.) | `_logging.configure_logging` |
 | `NOTEBOOKLM_NOTEBOOK` | Default notebook ID when no `-n/--notebook` flag is passed. Composes with `notebooklm use <id>` so per-shell overrides do not clobber the persisted active-notebook context. | `-n/--notebook` flag → `NOTEBOOKLM_NOTEBOOK` → active context (from `notebooklm use`) → error | `cli.helpers.require_notebook` (Click also reads it natively via `cli/options.py:notebook_option`'s `envvar=`) |
-| `NOTEBOOKLM_RPC_OVERRIDES` | **JSON object** mapping `RPCMethod` enum names to RPC ID strings (e.g. `{"LIST_NOTEBOOKS": "AbC123"}`). Overrides runtime RPC IDs — community self-patch when Google rotates a method ID. Empty string / unset disables the mechanism; invalid JSON or non-object payloads emit a `WARNING` and are ignored. | Process env, evaluated per RPC resolve (cached on the raw env string). | `notebooklm.rpc.overrides._parse_rpc_overrides` |
+| `NOTEBOOKLM_RPC_OVERRIDES` | **JSON object** mapping `RPCMethod` enum names to RPC ID strings (e.g. `{"LIST_NOTEBOOKS": "AbC123"}`). Overrides runtime RPC IDs — community self-patch when Google rotates a method ID. Empty string / unset disables the mechanism; invalid JSON or non-object payloads emit a `WARNING` and are ignored. | Process env, evaluated per RPC resolve (cached on the raw env string). | `notebooklm._web.wire.overrides._parse_rpc_overrides` |
 | `NOTEBOOKLM_QUIET_DEPRECATIONS` | Suppress the project's public-API `DeprecationWarning`s — the one-off warnings routed through `src/notebooklm/_deprecation.py::warn_deprecated` (e.g. awaiting `from_storage(...)`). Set to a truthy value (`1` / `true` / `yes` / `on`) to silence them. See `docs/deprecations.md`. | (warnings emitted) | `_deprecation._deprecations_quiet` / `deprecations_quiet` |
 | `NOTEBOOKLM_FUTURE_ERRORS` | **Retired (removed in v0.8.0; ignored).** It was the v0.7.0 forward-compat preview gate for the v0.8.0 error contract (ADR-0019 / umbrella [#1346](https://github.com/teng-lin/notebooklm-py/issues/1346)). Now that every break it staged — `get()` raising `*NotFoundError`, the attribute-only typed returns, the removed `interval=` alias, the bool→`None` returns, the refusal-raises, and the mutate-existing fail-loud — is the default, the flag is a **no-op**: setting it has no effect. See `docs/deprecations.md`. | (ignored) | — |
 | `NOTEBOOKLM_STRICT_DECODE` | **Retired (ignored since v0.7.0).** Strict decoding is the only mode — `safe_index` always raises `UnknownRPCMethodError` on schema drift. The former `0` warn-and-fallback opt-out was removed; setting the variable has no effect. | (ignored) | — |

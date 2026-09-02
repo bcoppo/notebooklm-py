@@ -7,21 +7,112 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+The headline of this release is the new **Android backend**. The Python SDK, CLI,
+MCP server, and REST server can now use NotebookLM's native mobile API as an
+alternative to the Web backend. Install the `android` extra and select it with
+`backend="android"`, `--backend android`, or `NOTEBOOKLM_BACKEND=android`.
+The Web backend remains the default. All eleven public API namespaces are
+available, and Android operations no longer fall back to the Web transport. See
+the [installation](docs/installation.md#optional-extras-matrix) and
+[configuration](docs/configuration.md#backend-preference) guides
+([#2269], [#2281]).
+
+Why choose it? The Android transport talks directly to NotebookLM's native gRPC
+service, using short-lived OAuth bearer tokens minted on demand from a stored
+master token. This avoids the Web backend's expiring browser-cookie sessions,
+frontend build labels, obfuscated RPC IDs, and positional `batchexecute`
+responses. It can therefore be a better fit for unattended CI, containers, and
+long-running services, while also providing an independent route when a Web UI
+change disrupts automation. The tradeoff is that a durable master token is a
+more powerful credential than a cookie snapshot; use a dedicated account and
+protect it carefully. Both backends rely on undocumented Google APIs and may
+change without notice.
+
+### Added
+
+- Added chat generation status and cancellation on both backends.
+  `client.chat.session_status()` reports the active session state, while
+  `client.chat.cancel()` idempotently stops the selected or latest session.
+  MCP users can cancel a detached chat task with `chat_cancel` and inspect live
+  session state through `chat_status` ([#2306]).
+- Added `notebooklm copy <title>` as a CLI entry point for copying a notebook
+  with its sources and Studio artifacts on either backend. It accepts a partial
+  or active notebook ID, `--use` selects the new copy, and `--json` returns
+  structured output ([#2308]).
+- Added ranked passage search on both backends through
+  `sources.search(notebook_id, query, source_ids=..., limit=...)` and
+  `notebooklm source search`. Results include the source, text, rank, and
+  source-relative span, and can be filtered to selected sources
+  ([#2305], [#2307]).
+- Added Google Play Books sources on both backends. Use
+  `sources.list_play_books()` and `sources.add_play_book()`,
+  `notebooklm source books` / `source add-book`, or the corresponding MCP
+  tools to add eligible books from your library. Availability follows
+  NotebookLM's account and region restrictions ([#2300], [#2304]).
+- Added `research.discover()` and `notebooklm research discover` on both
+  backends for a single-call "Discover sources" workflow. It returns ranked
+  sources and an overview immediately, while preserving a task ID for later
+  import ([#2299]).
+- Added source and artifact workflow helpers on both backends: non-blocking URL
+  batches, appending text to a source, copying sources or artifacts, fetching
+  Studio customization choices, and requesting grounded next-step suggestions.
+  These are also available through the corresponding CLI commands ([#2291]).
+- Added `chat_start` and `chat_status` MCP tools for chat generations that
+  may outlast a remote connector's request timeout. Requests queue when the
+  configurable concurrency limit is reached, and `chat_status` can poll
+  multiple task IDs at once ([#2286]).
+- Added source-type recognition for Gemini chats, Excel, Gmail, AI Mode chats,
+  Google Play Books, and general Google Drive files ([#2282], [#2300]).
+
+### Changed
+
+- **Compatibility note:** backend source type code `14` now reports
+  `SourceType.GOOGLE_DRIVE` instead of `GOOGLE_SPREADSHEET`. Native Google
+  Sheets continue to report `SourceType.GOOGLE_SPREADSHEET` through code `7`
+  ([#2281]).
+- The `cookies` extra now uses the maintained `rookie-cookies` package,
+  restoring browser-cookie import support on Python 3.13 and newer ([#2162]).
+
 ### Fixed
 
-- The credential scrubber now redacts Google API keys in the current
-  `AQ.`-prefixed shape, not just the legacy `AIza` + 35-char shape. Google
-  migrated AI Studio keys to an `AQ.`-prefixed ~53-character format that matched
-  none of the four `AUTH_TOKEN_SHAPE_PATTERNS`, so a current-format key rode
-  through redaction into logs, `data_at_failure` / `payload_preview` and recorded
-  cassettes — the same leak class
-  [#1517](https://github.com/teng-lin/notebooklm-py/issues/1517) closed for the
-  legacy shape. The identical regex is registered in both the runtime registry
-  (`_secrets.AUTH_TOKEN_SHAPE_PATTERNS`) and the cassette registry
-  (`tests/cassette_patterns._AUTH_TOKEN_PATTERNS`), so the parity guardrail stays
-  green and the derived scrubber and `_DETECT_AUTH_TOKEN` detector pick it up.
-  The tail quantifier is open-ended (`{20,}`) per the no-fragment rationale
-  already documented for the other shapes.
+- Write operations no longer report success when NotebookLM actually rejected
+  the request. This covers source refresh and rename, notebook and chat
+  updates, sharing changes, note, label, and collection mutations, and artifact
+  rename, export, and mind-map generation ([#2296]).
+- Android `sources.get_guide()` now accepts the server's valid unlabelled
+  response on repeated reads. Missing or not-yet-summarized sources also match
+  Web behavior for `get_guide()` and `check_freshness()` instead of raising a
+  false not-found error ([#2277], [#2280]).
+- Android file uploads now always perform one status check before timing out
+  when given a positive wait timeout, so a ready or failed source is not
+  misreported as an indeterminate timeout ([#2294]).
+- Interactive login now tolerates interrupted navigation during Google's
+  sign-in flow and gives actionable fallback guidance after repeated failures.
+  Browser-cookie import also handles millisecond or microsecond expiry values
+  and Firefox session cookies correctly ([#2260], [#2252]).
+- Fixed evaluation of public method annotations on Python 3.14 when a class
+  method shadows a builtin type name ([#2268]).
+
+[#2162]: https://github.com/teng-lin/notebooklm-py/pull/2162
+[#2252]: https://github.com/teng-lin/notebooklm-py/pull/2252
+[#2260]: https://github.com/teng-lin/notebooklm-py/pull/2260
+[#2268]: https://github.com/teng-lin/notebooklm-py/pull/2268
+[#2269]: https://github.com/teng-lin/notebooklm-py/pull/2269
+[#2277]: https://github.com/teng-lin/notebooklm-py/pull/2277
+[#2280]: https://github.com/teng-lin/notebooklm-py/pull/2280
+[#2281]: https://github.com/teng-lin/notebooklm-py/pull/2281
+[#2282]: https://github.com/teng-lin/notebooklm-py/pull/2282
+[#2286]: https://github.com/teng-lin/notebooklm-py/pull/2286
+[#2291]: https://github.com/teng-lin/notebooklm-py/pull/2291
+[#2294]: https://github.com/teng-lin/notebooklm-py/pull/2294
+[#2296]: https://github.com/teng-lin/notebooklm-py/pull/2296
+[#2299]: https://github.com/teng-lin/notebooklm-py/pull/2299
+[#2300]: https://github.com/teng-lin/notebooklm-py/pull/2300
+[#2304]: https://github.com/teng-lin/notebooklm-py/pull/2304
+[#2305]: https://github.com/teng-lin/notebooklm-py/pull/2305
+[#2306]: https://github.com/teng-lin/notebooklm-py/pull/2306
+[#2307]: https://github.com/teng-lin/notebooklm-py/pull/2307
+[#2308]: https://github.com/teng-lin/notebooklm-py/pull/2308
 
 ## [0.8.1] - 2026-08-14
 
