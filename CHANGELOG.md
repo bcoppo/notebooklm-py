@@ -78,6 +78,10 @@ change without notice.
 - Credential redaction now recognizes current `AQ.`-prefixed Google
   authorization keys in runtime logs, exception previews, and cassette
   fixtures, alongside legacy `AIza` keys ([#2254]).
+- The RPC health canary no longer treats an account-dependent omission of the
+  dedicated Cinematic row from Studio customization choices as removal of
+  `VideoFormat.CINEMATIC`. Wire format 3 remains supported, while unknown codes
+  and missing ordinary format choices still report drift ([#2313]).
 - Write operations no longer report success when NotebookLM actually rejected
   the request. This covers source refresh and rename, notebook and chat
   updates, sharing changes, note, label, and collection mutations, and artifact
@@ -117,6 +121,7 @@ change without notice.
 [#2306]: https://github.com/teng-lin/notebooklm-py/pull/2306
 [#2307]: https://github.com/teng-lin/notebooklm-py/pull/2307
 [#2308]: https://github.com/teng-lin/notebooklm-py/pull/2308
+[#2313]: https://github.com/teng-lin/notebooklm-py/issues/2313
 
 ## [0.8.1] - 2026-08-14
 
